@@ -13,59 +13,37 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-import requests
-from bs4 import BeautifulSoup
-from selenium import webdriver
-
-# Data Science and Visualization
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-# # ML Models - Classical
-# from sklearn.linear_model import LogisticRegression, LinearRegression, Ridge, Lasso
-# from sklearn.neighbors import KNeighborsClassifier
-# from sklearn.svm import SVC, SVR
-# from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
-# from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, RandomForestRegressor
-# from sklearn.naive_bayes import GaussianNB
-# from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering
-# from sklearn.model_selection import train_test_split, GridSearchCV
-# from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, mean_squared_error, r2_score
-# from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
-
-# # Gradient Boosting Libraries
-# import xgboost as xgb
-# import lightgbm as lgb
-
-# # Deep Learning
-# import tensorflow as tf
-# from tensorflow import keras
-# from tensorflow.keras.models import Sequential
-# from tensorflow.keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, LSTM, SimpleRNN, Dropout
-
-# # NLP
-# import nltk
-# import spacy
-# from textblob import TextBlob
-
-# # Local Modules
-# import pdf_report
-# from helpers import (
-#     get_month_start_end,
-#     required_monthly_saving,
-#     calculate_savings_rate,
-#     safe_sum,
-# )
+# Local Modules
 from constants import EXPENSE_CATEGORY_LABELS
 
-app = Flask(__name__)
 base_dir = os.path.dirname(os.path.abspath(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(base_dir, 'finance.db')
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(base_dir, 'templates'),
+    static_folder=os.path.join(base_dir, 'static')
+)
+
+# Support Vercel / AWS Lambda read-only filesystem by writing SQLite db and uploads to /tmp
+if os.environ.get('VERCEL'):
+    db_path = '/tmp/finance.db'
+    orig_db = os.path.join(base_dir, 'finance.db')
+    if not os.path.exists(db_path) and os.path.exists(orig_db):
+        import shutil
+        try:
+            shutil.copy2(orig_db, db_path)
+        except Exception:
+            pass
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
+    app.config['UPLOAD_FOLDER'] = '/tmp/uploads/avatars'
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+else:
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(base_dir, 'finance.db')
+    app.config['UPLOAD_FOLDER'] = os.path.join(base_dir, 'static', 'uploads', 'avatars')
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'finance-secret-key-change-in-prod')
-app.config['UPLOAD_FOLDER'] = os.path.join(base_dir, 'static', 'uploads', 'avatars')
 db = SQLAlchemy(app)
 
 class User(db.Model):
@@ -445,6 +423,15 @@ def api_profile_avatar():
     db.session.commit()
 
     return jsonify({'avatar_url': url_for('static', filename='uploads/avatars/' + new_name)})
+
+@app.route('/static/uploads/avatars/<path:filename>')
+def serve_avatar_image(filename):
+    from flask import send_from_directory
+    upload_folder = app.config.get('UPLOAD_FOLDER', os.path.join(base_dir, 'static', 'uploads', 'avatars'))
+    if os.path.exists(os.path.join(upload_folder, filename)):
+        return send_from_directory(upload_folder, filename)
+    static_folder = os.path.join(base_dir, 'static', 'uploads', 'avatars')
+    return send_from_directory(static_folder, filename)
 
 @app.route('/api/income', methods=['GET', 'POST'])
 @login_required
