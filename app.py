@@ -221,6 +221,7 @@ def logout():
 
 
 @app.route('/')
+@app.route('/api/index')
 def index():
     """First page: if logged in go to dashboard, else go to registration (mandatory flow)."""
     if 'user_id' in session:
